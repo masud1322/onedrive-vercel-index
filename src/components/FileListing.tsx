@@ -14,6 +14,7 @@ import { getPreviewType, preview } from '../utils/getPreviewType'
 import { useProtectedSWRInfinite } from '../utils/fetchWithSWR'
 import { getExtension, getRawExtension, getFileIcon } from '../utils/getFileIcon'
 import { getStoredToken } from '../utils/protectedRouteHandler'
+import siteConfig from '../../config/site.config'
 import {
   DownloadingToast,
   downloadMultipleFiles,
@@ -70,21 +71,57 @@ const formatChildName = (name: string) => {
   const { render, emoji } = renderEmoji(name)
   return render ? name.replace(emoji ? emoji[0] : '', '').trim() : name
 }
-export const ChildName: FC<{ name: string; folder?: boolean }> = ({ name, folder }) => {
+export const ChildName: FC<{ name: string; folder?: boolean; isProtected?: boolean }> = ({ name, folder, isProtected = false }) => {
   const original = formatChildName(name)
   const extension = folder ? '' : getRawExtension(original)
   const prename = folder ? original : original.substring(0, original.length - extension.length)
+  
+  const className = isProtected 
+    ? "truncate before:float-right before:content-[attr(data-tail)] text-red-600 dark:text-red-400 font-semibold"
+    : "truncate before:float-right before:content-[attr(data-tail)]"
+  
   return (
-    <span className="truncate before:float-right before:content-[attr(data-tail)]" data-tail={extension}>
+    <span className={className} data-tail={extension}>
       {prename}
+      {isProtected && (
+        <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded">
+          🔒 Protected
+        </span>
+      )}
     </span>
   )
 }
-export const ChildIcon: FC<{ child: OdFolderChildren }> = ({ child }) => {
+export const ChildIcon: FC<{ child: OdFolderChildren; currentPath?: string }> = ({ child, currentPath = '' }) => {
   const { render, emoji } = renderEmoji(child.name)
-  return render ? (
-    <span>{emoji ? emoji[0] : '📁'}</span>
-  ) : (
+  
+  // Check if this folder is protected
+  const isProtected = child.folder && currentPath !== undefined ? (() => {
+    const folderPath = currentPath === '/' ? `/${child.name}` : `${currentPath}/${child.name}`
+    const cleanPath = folderPath.replace(/\/+/g, '/')
+    const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+    
+    const protectedRoutes: string[] = siteConfig.protectedRoutes
+    
+    for (const route of protectedRoutes) {
+      if (route) {
+        const protectedPath = `${siteConfig.baseDirectory}${route}`.replace(/\/+/g, '/')
+        if (fullPath === protectedPath || cleanPath === route) {
+          return true
+        }
+      }
+    }
+    return false
+  })() : false
+  
+  if (render) {
+    return <span>{emoji ? emoji[0] : '📁'}</span>
+  }
+  
+  if (child.folder && isProtected) {
+    return <FontAwesomeIcon icon={['fas', 'lock']} className="text-red-500" />
+  }
+  
+  return (
     <FontAwesomeIcon icon={child.file ? getFileIcon(child.name, { video: Boolean(child.video) }) : ['far', 'folder']} />
   )
 }

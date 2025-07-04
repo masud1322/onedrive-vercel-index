@@ -45,6 +45,56 @@ A high-performance, feature-rich OneDrive file browser and sharing platform buil
 - Microsoft Azure App Registration
 - Vercel account (for deployment)
 
+## 🔧 Token Management & Recovery
+
+### `/tokenrestore` - Emergency Token Recovery 🆘
+
+The `/tokenrestore` route is a critical administrative endpoint for token management:
+
+#### **What is Token Restore?**
+- **Emergency access** when authentication tokens expire
+- **Admin-only route** protected by master password
+- **Self-service recovery** without manual intervention
+- **Instant re-authentication** for seamless access
+
+#### **When to Use `/tokenrestore`:**
+- ✅ When you see "Access token expired" errors
+- ✅ When search returns "No access token" messages  
+- ✅ When file access is denied due to authentication
+- ✅ When OneDrive API returns 401/403 errors
+
+#### **How to Access:**
+1. **Visit**: `https://yoursite.com/tokenrestore`
+2. **Enter**: Your admin password (set in `TOKEN_RESTORE_PASSWORD`)
+3. **Click**: "Restore Tokens" button
+4. **Result**: Automatic re-authentication with OneDrive
+
+#### **Security Features:**
+- 🔒 **Password Protected**: Only admins can access
+- 🛡️ **Environment Variable**: Password stored securely
+- ⚡ **Instant Recovery**: No downtime during token refresh
+- 🔄 **Auto-Redirect**: Takes you back to your site after success
+
+#### **Setup Instructions:**
+```env
+# Add to your .env.local or Vercel environment variables
+TOKEN_RESTORE_PASSWORD=your-secure-admin-password
+```
+
+#### **Emergency Scenarios:**
+```bash
+# Scenario 1: Search not working
+Visit: /tokenrestore → Enter password → Search restored ✅
+
+# Scenario 2: Files not accessible  
+Visit: /tokenrestore → Enter password → Access restored ✅
+
+# Scenario 3: API errors in logs
+Visit: /tokenrestore → Enter password → APIs working ✅
+```
+
+**⚠️ Important:** Keep your `TOKEN_RESTORE_PASSWORD` secure and don't share it!
+
 ### 1. Clone & Setup
 ```bash
 git clone https://github.com/masudranaxpert/hsc-onedrive-index.git
@@ -105,6 +155,12 @@ vercel --prod
 3. Analytics will automatically start collecting data
 4. View insights in your MongoDB dashboard
 
+### Token Restore Setup
+1. Set `TOKEN_RESTORE_PASSWORD` in environment variables
+2. Access `/tokenrestore` when authentication fails
+3. Enter admin password to re-authenticate
+4. Tokens will be refreshed automatically
+
 ### Search Optimization
 The search system automatically:
 - ✅ Indexes all accessible files and folders
@@ -163,6 +219,14 @@ GET /api/raw/?path={path}&odpt={token}
 ```
 - Direct file download
 - Optional password token for protected files
+
+### Token Restore API
+```
+GET /tokenrestore
+```
+- Emergency token restoration interface
+- Admin password protected route
+- Used to re-authenticate when tokens expire
 
 ### Analytics API
 ```

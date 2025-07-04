@@ -10,8 +10,9 @@ import { getBaseUrl } from '../utils/getBaseUrl'
 import { formatModifiedDateTime } from '../utils/fileDetails'
 import { Checkbox, ChildIcon, ChildName, Downloading } from './FileListing'
 import { getStoredToken } from '../utils/protectedRouteHandler'
+import siteConfig from '../../config/site.config'
 
-const GridItem = ({ c, path }: { c: OdFolderChildren; path: string }) => {
+const GridItem = ({ c, path, currentPath }: { c: OdFolderChildren; path: string; currentPath: string }) => {
   // We use the generated medium thumbnail for rendering preview images (excluding folders)
   const hashedToken = getStoredToken(path)
   const thumbnailUrl =
@@ -20,9 +21,28 @@ const GridItem = ({ c, path }: { c: OdFolderChildren; path: string }) => {
   // Some thumbnails are broken, so we check for onerror event in the image component
   const [brokenThumbnail, setBrokenThumbnail] = useState(false)
 
+  // Check if this folder is protected
+  const isProtected = c.folder ? (() => {
+    const folderPath = currentPath === '/' ? `/${c.name}` : `${currentPath}/${c.name}`
+    const cleanPath = folderPath.replace(/\/+/g, '/')
+    const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+    
+    const protectedRoutes: string[] = siteConfig.protectedRoutes
+    
+    for (const route of protectedRoutes) {
+      if (route) {
+        const protectedPath = `${siteConfig.baseDirectory}${route}`.replace(/\/+/g, '/')
+        if (fullPath === protectedPath || cleanPath === route) {
+          return true
+        }
+      }
+    }
+    return false
+  })() : false
+
   return (
-    <div className="space-y-2">
-      <div className="h-32 overflow-hidden rounded border border-gray-900/10 dark:border-gray-500/30">
+    <div className={`space-y-2 ${isProtected ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-600 rounded-lg p-2' : ''}`}>
+      <div className={`h-32 overflow-hidden rounded border ${isProtected ? 'border-red-400' : 'border-gray-900/10 dark:border-gray-500/30'}`}>
         {thumbnailUrl && !brokenThumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -33,7 +53,7 @@ const GridItem = ({ c, path }: { c: OdFolderChildren; path: string }) => {
           />
         ) : (
           <div className="relative flex h-full w-full items-center justify-center rounded-lg">
-            <ChildIcon child={c} />
+            <ChildIcon child={c} currentPath={currentPath} />
             <span className="absolute bottom-0 right-0 m-1 font-medium text-gray-700 dark:text-gray-500">
               {c.folder?.childCount}
             </span>
@@ -43,9 +63,9 @@ const GridItem = ({ c, path }: { c: OdFolderChildren; path: string }) => {
 
       <div className="flex items-start justify-center space-x-2">
         <span className="w-5 flex-shrink-0 text-center">
-          <ChildIcon child={c} />
+          <ChildIcon child={c} currentPath={currentPath} />
         </span>
-        <ChildName name={c.name} folder={Boolean(c.folder)} />
+        <ChildName name={c.name} folder={Boolean(c.folder)} isProtected={isProtected} />
       </div>
       <div className="truncate text-center font-mono text-xs text-gray-700 dark:text-gray-500">
         {formatModifiedDateTime(c.lastModifiedDateTime)}
@@ -188,7 +208,7 @@ const FolderGridLayout = ({
             </div>
 
             <Link href={getItemPath(c.name)} passHref>
-              <GridItem c={c} path={getItemPath(c.name)} />
+              <GridItem c={c} path={getItemPath(c.name)} currentPath={path} />
             </Link>
           </div>
         ))}
