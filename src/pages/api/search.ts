@@ -14,6 +14,7 @@ interface DriveItem {
   parentReference: {
     path?: string
   }
+  path?: string
 }
 
 /**
@@ -198,6 +199,12 @@ async function getAllFilesByFolderId(
     for (const item of items) {
       const fullPath = folderPath ? `${folderPath}/${item.name}` : item.name
       
+      // ✅ SECURITY: Skip .password files completely
+      if (item.name === '.password') {
+        console.log(`🔒 Skipping .password file during collection: ${fullPath}`)
+        continue
+      }
+      
       allFiles.push({
         ...item,
         path: fullPath,
@@ -266,11 +273,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
     console.log(`Total files found: ${allFiles.length}`)
 
-    // Filter results
+    // Filter results and exclude password files
     const queryLower = searchQuery.toLowerCase().trim()
-    const results = allFiles.filter(file => 
-      file.name.toLowerCase().includes(queryLower)
-    )
+    const results = allFiles.filter(file => {
+      // ✅ SECURITY: Never show .password files in search results
+      if (file.name === '.password') {
+        console.log(`🔒 Excluding .password file from search results: ${file.path}`)
+        return false
+      }
+      
+      // ✅ Normal search filtering
+      return file.name.toLowerCase().includes(queryLower)
+    })
 
     console.log(`Filtered results: ${results.length} matching "${searchQuery}"`)
 
