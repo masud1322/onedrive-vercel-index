@@ -13,10 +13,18 @@ import siteConfig from '../../../config/site.config'
  * - encodes the '<' and '>' characters,
  * - replaces '?' and '/' characters with ' ',
  * - replaces ''' with ''''
+ * - handles partial matches and case insensitivity
  * Reference: https://stackoverflow.com/questions/41491222/single-quote-escaping-in-microsoft-graph.
  */
 function sanitiseQuery(query: string): string {
-  const sanitisedQuery = query
+  // First, trim and handle basic case insensitivity by adding wildcard patterns
+  const trimmedQuery = query.trim()
+  
+  // For better search results, we'll use a more flexible approach
+  // Microsoft Graph search supports wildcard (*) for partial matches
+  const flexibleQuery = `*${trimmedQuery}*`
+  
+  const sanitisedQuery = flexibleQuery
     .replace(/'/g, "''")
     .replace('<', ' &lt; ')
     .replace('>', ' &gt; ')
