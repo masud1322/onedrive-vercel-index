@@ -11,15 +11,35 @@ import { humanFileSize, formatModifiedDateTime } from '../utils/fileDetails'
 
 import { Downloading, Checkbox, ChildIcon, ChildName } from './FileListing'
 import { getStoredToken } from '../utils/protectedRouteHandler'
+import siteConfig from '../../config/site.config'
 
-const FileListItem: FC<{ fileContent: OdFolderChildren }> = ({ fileContent: c }) => {
+const FileListItem: FC<{ fileContent: OdFolderChildren; currentPath: string }> = ({ fileContent: c, currentPath }) => {
+  // Check if this folder is protected
+  const isProtected = c.folder ? (() => {
+    const folderPath = currentPath === '/' ? `/${c.name}` : `${currentPath}/${c.name}`
+    const cleanPath = folderPath.replace(/\/+/g, '/')
+    const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+    
+    const protectedRoutes: string[] = siteConfig.protectedRoutes
+    
+    for (const route of protectedRoutes) {
+      if (route) {
+        const protectedPath = `${siteConfig.baseDirectory}${route}`.replace(/\/+/g, '/')
+        if (fullPath === protectedPath || cleanPath === route) {
+          return true
+        }
+      }
+    }
+    return false
+  })() : false
+
   return (
-    <div className="grid cursor-pointer grid-cols-10 items-center space-x-2 px-3 py-2.5">
+    <div className={`grid cursor-pointer grid-cols-10 items-center space-x-2 px-3 py-2.5 ${isProtected ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400' : ''}`}>
       <div className="col-span-10 flex items-center space-x-2 truncate md:col-span-6" title={c.name}>
         <div className="w-5 flex-shrink-0 text-center">
-          <ChildIcon child={c} />
+          <ChildIcon child={c} currentPath={currentPath} />
         </div>
-        <ChildName name={c.name} folder={Boolean(c.folder)} />
+        <ChildName name={c.name} folder={Boolean(c.folder)} isProtected={isProtected} />
       </div>
       <div className="col-span-3 hidden flex-shrink-0 font-mono text-sm text-gray-700 dark:text-gray-500 md:block">
         {formatModifiedDateTime(c.lastModifiedDateTime)}
@@ -113,7 +133,7 @@ const FolderListLayout = ({
             passHref
             className="col-span-12 md:col-span-10"
           >
-            <FileListItem fileContent={c} />
+            <FileListItem fileContent={c} currentPath={path} />
           </Link>
 
           {c.folder ? (

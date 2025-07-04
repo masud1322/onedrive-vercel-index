@@ -46,20 +46,26 @@ function mapAbsolutePath(path: string): string {
  */
 function useDriveItemSearch() {
   const [query, setQuery] = useState('')
+  
   const searchDriveItem = async (q: string) => {
-    const { data } = await axios.get<OdSearchResult>(`/api/search/?q=${q}`)
+    // Use the main search API
+    try {
+      const { data } = await axios.get<OdSearchResult>(`/api/search/?q=${q}`)
 
-    // Map parentReference to the absolute path of the search result
-    data.map(item => {
-      item['path'] =
-        'path' in item.parentReference
-          ? // OneDrive International have the path returned in the parentReference field
-            `${mapAbsolutePath(item.parentReference.path)}/${encodeURIComponent(item.name)}`
-          : // OneDrive for Business/Education does not, so we need extra steps here
-            ''
-    })
+      // Map parentReference to the absolute path of the search result
+      data.map(item => {
+        item['path'] =
+          'path' in item.parentReference
+            ? // OneDrive International have the path returned in the parentReference field
+              `${mapAbsolutePath(item.parentReference.path)}/${encodeURIComponent(item.name)}`
+            : // OneDrive for Business/Education does not, so we need extra steps here
+              ''
+      })
 
-    return data
+      return data
+    } catch (error) {
+      throw error
+    }
   }
 
   const debouncedDriveItemSearch = useConstant(() => AwesomeDebouncePromise(searchDriveItem, 1000))
@@ -214,18 +220,21 @@ export default function SearchModal({
             <div className="my-12 inline-block w-full max-w-3xl transform overflow-hidden rounded border border-gray-400/30 text-left shadow-xl transition-all">
               <Dialog.Title
                 as="h3"
-                className="flex items-center space-x-4 border-b border-gray-400/30 bg-gray-50 p-4 dark:bg-gray-800 dark:text-white"
+                className="border-b border-gray-400/30 bg-gray-50 dark:bg-gray-800 dark:text-white"
               >
-                <FontAwesomeIcon icon="search" className="h-4 w-4" />
-                <input
-                  type="text"
-                  id="search-box"
-                  className="w-full bg-transparent focus:outline-none focus-visible:outline-none"
-                  placeholder={t('Search ...')}
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                />
-                <div className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-medium dark:bg-gray-700">ESC</div>
+                <div className="flex items-center space-x-4 p-4">
+                  <FontAwesomeIcon icon="search" className="h-4 w-4" />
+                  <input
+                    type="text"
+                    id="search-box"
+                    className="flex-1 bg-transparent focus:outline-none focus-visible:outline-none"
+                    placeholder={t('Search ...')}
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                  />
+                  <div className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-medium dark:bg-gray-700">ESC</div>
+                </div>
+
               </Dialog.Title>
               <div
                 className="max-h-[80vh] overflow-x-hidden overflow-y-scroll bg-white dark:bg-gray-900 dark:text-white"
@@ -239,7 +248,23 @@ export default function SearchModal({
                 )}
                 {results.error && (
                   <div className="px-4 py-12 text-center text-sm font-medium">
-                    {t('Error: {{message}}', { message: results.error.message })}
+                    <div className="text-red-600 dark:text-red-400">
+                      {((results.error as any)?.response?.data?.tokenExpired) ? (
+                        <div className="space-y-2">
+                          <div>{t('Access token expired')}</div>
+                          <Link
+                            href="/tokenrestore" 
+                            className="inline-block rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+                          >
+                            {t('Restore Tokens')}
+                          </Link>
+                        </div>
+                      ) : (
+                        t('Error: {{message}}', { 
+                          message: (results.error as any)?.response?.data?.error || results.error.message 
+                        })
+                      )}
+                    </div>
                   </div>
                 )}
                 {results.result && (

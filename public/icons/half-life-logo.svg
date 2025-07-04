@@ -1,0 +1,25 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#1a1a1a" stroke="#ff6600" stroke-width="2"/>
+  
+  <!-- Lambda symbol (Greek letter λ) - Half Life's iconic symbol -->
+  <path d="M20 48 L26 32 L32 48 L38 32 L44 48" 
+        stroke="#ff6600" 
+        stroke-width="3" 
+        fill="none" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  
+  <!-- Additional Half Life styling -->
+  <path d="M18 16 L20 20 L44 20 L46 16" 
+        stroke="#ff6600" 
+        stroke-width="2" 
+        fill="none"/>
+  
+  <!-- Small decorative elements -->
+  <circle cx="16" cy="32" r="2" fill="#ff6600"/>
+  <circle cx="48" cy="32" r="2" fill="#ff6600"/>
+  
+  <!-- Center dot -->
+  <circle cx="32" cy="32" r="1.5" fill="#ff6600"/>
+</svg>
