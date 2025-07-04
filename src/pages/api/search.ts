@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { encodePath, getAccessToken, checkAuthRoute } from '.'
+import { encodePath, getAccessToken } from '.'
 import { matchProtectedRoute } from '../../utils/protectedRouteHandler'
 import apiConfig from '../../../config/api.config'
 import siteConfig from '../../../config/site.config'
@@ -17,28 +17,25 @@ interface DriveItem {
 }
 
 /**
- * Check if a folder path is protected and if user has access
+ * Check if a folder path is protected
  * @param folderPath The path to check
- * @param accessToken OneDrive access token for API calls
- * @param req The request object to check for authentication headers
- * @returns Promise<boolean> indicating if the folder can be searched
+ * @returns boolean indicating if the folder should be excluded from search
  */
-async function canAccessFolder(folderPath: string, accessToken: string, req: NextApiRequest): Promise<boolean> {
-  // Clean the folder path similar to main API
+function isProtectedFolder(folderPath: string): boolean {
+  // Clean the folder path
   const cleanPath = folderPath.startsWith('/') ? folderPath.replace(/\/$/, '') : `/${folderPath}`.replace(/\/$/, '')
   const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
   
-  try {
-    // Use the same authentication logic as main API
-    const odTokenHeader = req.headers['od-protected-token'] as string
-    const authResult = await checkAuthRoute(cleanPath, accessToken, odTokenHeader || '')
-    
-    // Only allow access if authentication passed (code 200) or route is not protected
-    return authResult.code === 200
-  } catch (error) {
-    console.log(`Authentication check failed for folder ${folderPath}:`, error)
-    return false // Deny access on any error
+  // Check if this path matches any protected route
+  const protectedRoute = matchProtectedRoute(fullPath)
+  
+  // If it's a protected route, exclude it from search completely
+  if (protectedRoute) {
+    console.log(`🔒 Protected folder detected, excluding from search: ${folderPath}`)
+    return true // This folder is protected, exclude it
   }
+  
+  return false // Not protected, include in search
 }
 
 /**
@@ -172,17 +169,16 @@ async function getAllFilesByFolderId(
   folderPath: string = '',
   allFiles: DriveItem[] = [],
   maxDepth: number = 4,
-  currentDepth: number = 0,
-  req?: NextApiRequest
+  currentDepth: number = 0
 ): Promise<DriveItem[]> {
   
   if (currentDepth >= maxDepth || allFiles.length > 1000) {
     return allFiles
   }
 
-  // Skip protected folders if user doesn't have access
-  if (req && !(await canAccessFolder(folderPath, accessToken, req))) {
-    console.log(`Skipping protected folder: ${folderPath}`)
+  // Skip protected folders completely (no search allowed in protected folders)
+  if (isProtectedFolder(folderPath)) {
+    console.log(`🔒 Skipping protected folder: ${folderPath}`)
     return allFiles
   }
 
@@ -218,8 +214,7 @@ async function getAllFilesByFolderId(
           fullPath,
           allFiles,
           maxDepth,
-          currentDepth + 1,
-          req
+          currentDepth + 1
         )
       }
     }
@@ -268,7 +263,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Get all files using the fixed folder ID method
-    const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0, req)
+    const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
     console.log(`Total files found: ${allFiles.length}`)
 
     // Filter results
