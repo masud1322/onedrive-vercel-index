@@ -115,6 +115,87 @@ async function directDriveSearch(
   }
 }
 
+/**
+ * Get the base folder ID first, then access its contents using ID
+ */
+async function getBaseFolderId(accessToken: string): Promise<string | null> {
+  try {
+    const baseEncodedPath = encodePath('/')
+    const baseApiUrl = `${apiConfig.driveApi}/root${baseEncodedPath}`
+    
+    const { data } = await axios.get(baseApiUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        select: 'id,name,folder',
+      },
+    })
+
+    return data.id
+  } catch (error) {
+    console.log('Failed to get base folder ID:', error)
+    return null
+  }
+}
+
+/**
+ * Get all files using folder ID directly (fixed method)
+ */
+async function getAllFilesByFolderId(
+  accessToken: string,
+  folderId: string,
+  folderPath: string = '',
+  allFiles: DriveItem[] = [],
+  maxDepth: number = 4,
+  currentDepth: number = 0
+): Promise<DriveItem[]> {
+  
+  if (currentDepth >= maxDepth || allFiles.length > 1000) {
+    return allFiles
+  }
+
+  try {
+    const apiUrl = `${apiConfig.driveApi}/items/${folderId}/children`
+    
+    const { data } = await axios.get(apiUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        select: 'id,name,file,folder,parentReference',
+        top: 999,
+      },
+    })
+
+    const items = data.value || []
+
+    for (const item of items) {
+      const fullPath = folderPath ? `${folderPath}/${item.name}` : item.name
+      
+      allFiles.push({
+        ...item,
+        path: fullPath,
+        parentReference: {
+          path: `/drive/root:${siteConfig.baseDirectory}${folderPath}`
+        }
+      })
+      
+      // Recurse into subfolders
+      if (item.folder && currentDepth < maxDepth - 1) {
+        await getAllFilesByFolderId(
+          accessToken,
+          item.id,
+          fullPath,
+          allFiles,
+          maxDepth,
+          currentDepth + 1
+        )
+      }
+    }
+  } catch (error) {
+    console.log(`Error accessing folder ID ${folderId}:`, error)
+  }
+
+  return allFiles
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Set edge function caching
   res.setHeader('Cache-Control', apiConfig.cacheControlHeader)
@@ -142,46 +223,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
-    console.log(`Searching for: "${searchQuery}" in directory: ${siteConfig.baseDirectory}`)
+    console.log(`Fixed search for: "${searchQuery}" in directory: ${siteConfig.baseDirectory}`)
 
-    let results: DriveItem[] = []
-
-    // Method 1: Try direct drive search first (fastest)
-    try {
-      results = await directDriveSearch(accessToken, searchQuery)
-      console.log(`Direct search found ${results.length} results`)
-    } catch (error) {
-      console.log('Direct search failed, trying recursive search')
+    // NEW METHOD: Use folder ID instead of path
+    const baseFolderId = await getBaseFolderId(accessToken)
+    
+    if (!baseFolderId) {
+      res.status(500).json({ error: 'Could not access base directory' })
+      return
     }
 
-    // Method 2: If direct search fails or returns no results, use recursive search
-    if (results.length === 0) {
-      console.log('Starting recursive search...')
-      results = await recursiveSearch(accessToken, searchQuery, '', [], 4, 0)
-      console.log(`Recursive search found ${results.length} results`)
-    }
+    // Get all files using the fixed folder ID method
+    const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
+    console.log(`Total files found: ${allFiles.length}`)
 
-    // Method 3: If still no results, try basic Graph API search as fallback
-    if (results.length === 0) {
-      try {
-        const searchRootPath = encodePath('/')
-        const encodedPath = searchRootPath === '' ? searchRootPath : searchRootPath + ':'
-        const searchApi = `${apiConfig.driveApi}/root${encodedPath}/search(q='${encodeURIComponent(searchQuery)}')`
-        
-        const { data } = await axios.get(searchApi, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          params: {
-            select: 'id,name,file,folder,parentReference',
-            top: siteConfig.maxItems,
-          },
-        })
-        
-        results = data.value || []
-        console.log(`Fallback search found ${results.length} results`)
-      } catch (fallbackError) {
-        console.log('All search methods failed')
-      }
-    }
+    // Filter results
+    const queryLower = searchQuery.toLowerCase().trim()
+    const results = allFiles.filter(file => 
+      file.name.toLowerCase().includes(queryLower)
+    )
+
+    console.log(`Filtered results: ${results.length} matching "${searchQuery}"`)
 
     res.status(200).json(results)
   } catch (error: any) {
