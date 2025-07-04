@@ -46,30 +46,9 @@ function mapAbsolutePath(path: string): string {
  */
 function useDriveItemSearch() {
   const [query, setQuery] = useState('')
-  const [useComprehensive, setUseComprehensive] = useState(false)
   
   const searchDriveItem = async (q: string) => {
-    // Try the new comprehensive search first
-    try {
-      const { data } = await axios.get(`/api/search-all/?q=${q}&comprehensive=${useComprehensive}`)
-      
-      if (data.results && Array.isArray(data.results)) {
-        // Map the results to the expected format
-        const mappedResults = data.results.map((item: any) => {
-          item['path'] = item.path || (
-            'path' in item.parentReference
-              ? `${mapAbsolutePath(item.parentReference.path)}/${encodeURIComponent(item.name)}`
-              : ''
-          )
-          return item
-        })
-        return mappedResults
-      }
-    } catch (comprehensiveError) {
-      console.log('Comprehensive search failed, trying regular search:', comprehensiveError)
-    }
-    
-    // Fallback to regular search
+    // Use the main search API
     try {
       const { data } = await axios.get<OdSearchResult>(`/api/search/?q=${q}`)
 
@@ -84,8 +63,8 @@ function useDriveItemSearch() {
       })
 
       return data
-    } catch (regularError) {
-      throw regularError
+    } catch (error) {
+      throw error
     }
   }
 
@@ -96,13 +75,11 @@ function useDriveItemSearch() {
     } else {
       return debouncedDriveItemSearch(query)
     }
-  }, [query, useComprehensive])
+  }, [query])
 
   return {
     query,
     setQuery,
-    useComprehensive,
-    setUseComprehensive,
     results,
   }
 }
@@ -206,7 +183,7 @@ export default function SearchModal({
   searchOpen: boolean
   setSearchOpen: Dispatch<SetStateAction<boolean>>
 }) {
-  const { query, setQuery, useComprehensive, setUseComprehensive, results } = useDriveItemSearch()
+  const { query, setQuery, results } = useDriveItemSearch()
 
   const { t } = useTranslation()
 
@@ -257,20 +234,7 @@ export default function SearchModal({
                   />
                   <div className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-medium dark:bg-gray-700">ESC</div>
                 </div>
-                <div className="flex items-center justify-between border-t border-gray-400/30 px-4 py-2 text-xs">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useComprehensive}
-                      onChange={e => setUseComprehensive(e.target.checked)}
-                      className="rounded"
-                    />
-                    <span>Deep Search (searches all subfolders)</span>
-                  </label>
-                  <span className="text-gray-500">
-                    Searching from: {siteConfig.baseDirectory}
-                  </span>
-                </div>
+
               </Dialog.Title>
               <div
                 className="max-h-[80vh] overflow-x-hidden overflow-y-scroll bg-white dark:bg-gray-900 dark:text-white"

@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import { encodePath, getAccessToken } from '.'
+import { matchProtectedRoute, getStoredToken } from '../../utils/protectedRouteHandler'
 import apiConfig from '../../../config/api.config'
 import siteConfig from '../../../config/site.config'
 
@@ -13,6 +14,25 @@ interface DriveItem {
   parentReference: {
     path?: string
   }
+}
+
+/**
+ * Check if a folder path is protected and if user has access
+ * @param folderPath The path to check
+ * @param req The request object to check for authentication headers
+ * @returns boolean indicating if the folder can be searched
+ */
+function canAccessFolder(folderPath: string, req: NextApiRequest): boolean {
+  const fullPath = `${siteConfig.baseDirectory}${folderPath}`.replace(/\/+/g, '/')
+  const protectedRoute = matchProtectedRoute(fullPath)
+  
+  if (!protectedRoute) {
+    return true // Not protected, can access
+  }
+  
+  // Check if user has provided authentication for this protected route
+  const odTokenHeader = req.headers['od-protected-token'] as string
+  return Boolean(odTokenHeader) // For now, just check if token exists
 }
 
 /**
@@ -146,10 +166,17 @@ async function getAllFilesByFolderId(
   folderPath: string = '',
   allFiles: DriveItem[] = [],
   maxDepth: number = 4,
-  currentDepth: number = 0
+  currentDepth: number = 0,
+  req?: NextApiRequest
 ): Promise<DriveItem[]> {
   
   if (currentDepth >= maxDepth || allFiles.length > 1000) {
+    return allFiles
+  }
+
+  // Skip protected folders if user doesn't have access
+  if (req && !canAccessFolder(folderPath, req)) {
+    console.log(`Skipping protected folder: ${folderPath}`)
     return allFiles
   }
 
@@ -185,7 +212,8 @@ async function getAllFilesByFolderId(
           fullPath,
           allFiles,
           maxDepth,
-          currentDepth + 1
+          currentDepth + 1,
+          req
         )
       }
     }
@@ -234,7 +262,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Get all files using the fixed folder ID method
-    const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
+    const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0, req)
     console.log(`Total files found: ${allFiles.length}`)
 
     // Filter results
