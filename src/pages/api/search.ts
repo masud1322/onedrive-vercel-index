@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import { encodePath, getAccessToken } from '.'
+import { matchProtectedRoute } from '../../utils/protectedRouteHandler'
 import apiConfig from '../../../config/api.config'
 import siteConfig from '../../../config/site.config'
 
@@ -13,6 +14,62 @@ interface DriveItem {
   parentReference: {
     path?: string
   }
+  path?: string
+}
+
+/**
+ * Check if a folder path is protected
+ * @param folderPath The path to check
+ * @returns boolean indicating if the folder should be excluded from search
+ */
+function isProtectedFolder(folderPath: string): boolean {
+  // Clean the folder path
+  const cleanPath = folderPath.startsWith('/') ? folderPath.replace(/\/$/, '') : `/${folderPath}`.replace(/\/$/, '')
+  const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+  
+  // Check if this path matches any protected route
+  const protectedRoute = matchProtectedRoute(fullPath)
+  
+  // If it's a protected route, exclude it from search completely
+  if (protectedRoute) {
+    console.log(`🔒 Protected folder detected, excluding from search: ${folderPath}`)
+    return true // This folder is protected, exclude it
+  }
+  
+  return false // Not protected, include in search
+}
+
+/**
+ * Check if a file is inside a protected folder
+ * @param filePath The full file path to check
+ * @returns boolean indicating if the file should be excluded from search
+ */
+function isFileInProtectedFolder(filePath: string): boolean {
+  if (!filePath) return false
+  
+  // Clean the file path
+  const cleanPath = filePath.startsWith('/') ? filePath : `/${filePath}`
+  const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+  
+  // Get the directory containing this file
+  const fileDir = fullPath.substring(0, fullPath.lastIndexOf('/'))
+  
+  // Check if any protected route is a parent of this file
+  const protectedRoutes: string[] = siteConfig.protectedRoutes
+  
+  for (const route of protectedRoutes) {
+    if (route) {
+      const protectedPath = `${siteConfig.baseDirectory}${route}`.replace(/\/+/g, '/')
+      
+      // Check if the file is inside this protected folder
+      if (fullPath.startsWith(protectedPath + '/') || fileDir === protectedPath) {
+        console.log(`🔒 File in protected folder detected: ${filePath} (protected by: ${route})`)
+        return true
+      }
+    }
+  }
+  
+  return false
 }
 
 /**
@@ -153,6 +210,12 @@ async function getAllFilesByFolderId(
     return allFiles
   }
 
+  // Skip protected folders completely (no search allowed in protected folders)
+  if (isProtectedFolder(folderPath)) {
+    console.log(`🔒 Skipping protected folder: ${folderPath}`)
+    return allFiles
+  }
+
   try {
     const apiUrl = `${apiConfig.driveApi}/items/${folderId}/children`
     
@@ -168,6 +231,18 @@ async function getAllFilesByFolderId(
 
     for (const item of items) {
       const fullPath = folderPath ? `${folderPath}/${item.name}` : item.name
+      
+      // ✅ SECURITY: Skip .password files completely
+      if (item.name === '.password') {
+        console.log(`🔒 Skipping .password file during collection: ${fullPath}`)
+        continue
+      }
+      
+      // ✅ SECURITY: Skip files inside protected folders
+      if (isFileInProtectedFolder(fullPath)) {
+        console.log(`🔒 Skipping file in protected folder: ${fullPath}`)
+        continue
+      }
       
       allFiles.push({
         ...item,
@@ -237,11 +312,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
     console.log(`Total files found: ${allFiles.length}`)
 
-    // Filter results
+    // Filter results and exclude protected content
     const queryLower = searchQuery.toLowerCase().trim()
-    const results = allFiles.filter(file => 
-      file.name.toLowerCase().includes(queryLower)
-    )
+    const results = allFiles.filter(file => {
+      // ✅ SECURITY: Never show .password files in search results
+      if (file.name === '.password') {
+        console.log(`🔒 Excluding .password file from search results: ${file.path}`)
+        return false
+      }
+      
+      // ✅ SECURITY: Double-check - never show files from protected folders
+      if (file.path && isFileInProtectedFolder(file.path)) {
+        console.log(`🔒 Excluding protected file from search results: ${file.path}`)
+        return false
+      }
+      
+      // ✅ Normal search filtering
+      return file.name.toLowerCase().includes(queryLower)
+    })
 
     console.log(`Filtered results: ${results.length} matching "${searchQuery}"`)
 
