@@ -40,6 +40,39 @@ function isProtectedFolder(folderPath: string): boolean {
 }
 
 /**
+ * Check if a file is inside a protected folder
+ * @param filePath The full file path to check
+ * @returns boolean indicating if the file should be excluded from search
+ */
+function isFileInProtectedFolder(filePath: string): boolean {
+  if (!filePath) return false
+  
+  // Clean the file path
+  const cleanPath = filePath.startsWith('/') ? filePath : `/${filePath}`
+  const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
+  
+  // Get the directory containing this file
+  const fileDir = fullPath.substring(0, fullPath.lastIndexOf('/'))
+  
+  // Check if any protected route is a parent of this file
+  const protectedRoutes: string[] = siteConfig.protectedRoutes
+  
+  for (const route of protectedRoutes) {
+    if (route) {
+      const protectedPath = `${siteConfig.baseDirectory}${route}`.replace(/\/+/g, '/')
+      
+      // Check if the file is inside this protected folder
+      if (fullPath.startsWith(protectedPath + '/') || fileDir === protectedPath) {
+        console.log(`🔒 File in protected folder detected: ${filePath} (protected by: ${route})`)
+        return true
+      }
+    }
+  }
+  
+  return false
+}
+
+/**
  * Recursively search through OneDrive folders to find all files
  * This bypasses Microsoft Graph's limited search functionality
  */
@@ -205,6 +238,12 @@ async function getAllFilesByFolderId(
         continue
       }
       
+      // ✅ SECURITY: Skip files inside protected folders
+      if (isFileInProtectedFolder(fullPath)) {
+        console.log(`🔒 Skipping file in protected folder: ${fullPath}`)
+        continue
+      }
+      
       allFiles.push({
         ...item,
         path: fullPath,
@@ -273,12 +312,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const allFiles = await getAllFilesByFolderId(accessToken, baseFolderId, '', [], 4, 0)
     console.log(`Total files found: ${allFiles.length}`)
 
-    // Filter results and exclude password files
+    // Filter results and exclude protected content
     const queryLower = searchQuery.toLowerCase().trim()
     const results = allFiles.filter(file => {
       // ✅ SECURITY: Never show .password files in search results
       if (file.name === '.password') {
         console.log(`🔒 Excluding .password file from search results: ${file.path}`)
+        return false
+      }
+      
+      // ✅ SECURITY: Double-check - never show files from protected folders
+      if (file.path && isFileInProtectedFolder(file.path)) {
+        console.log(`🔒 Excluding protected file from search results: ${file.path}`)
         return false
       }
       
