@@ -13,18 +13,11 @@ import siteConfig from '../../../config/site.config'
  * - encodes the '<' and '>' characters,
  * - replaces '?' and '/' characters with ' ',
  * - replaces ''' with ''''
- * - handles partial matches and case insensitivity
  * Reference: https://stackoverflow.com/questions/41491222/single-quote-escaping-in-microsoft-graph.
  */
 function sanitiseQuery(query: string): string {
-  // First, trim and handle basic case insensitivity by adding wildcard patterns
-  const trimmedQuery = query.trim()
-  
-  // For better search results, we'll use a more flexible approach
-  // Microsoft Graph search supports wildcard (*) for partial matches
-  const flexibleQuery = `*${trimmedQuery}*`
-  
-  const sanitisedQuery = flexibleQuery
+  const sanitisedQuery = query
+    .trim()
     .replace(/'/g, "''")
     .replace('<', ' &lt; ')
     .replace('>', ' &gt; ')
@@ -68,8 +61,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const searchRootPath = encodePath('/')
     const encodedPath = searchRootPath === '' ? searchRootPath : searchRootPath + ':'
 
+    // Use simple, safe search query
     const searchApi = `${apiConfig.driveApi}/root${encodedPath}/search(q='${sanitiseQuery(searchQuery)}')`
-
+    
     const { data } = await axios.get(searchApi, {
       headers: { Authorization: `Bearer ${accessToken}` },
       params: {
@@ -78,7 +72,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     })
     
-    res.status(200).json(data.value || [])
+    // Server-side filtering for better partial matches
+    let results = data.value || []
+    const queryLower = searchQuery.toLowerCase().trim()
+    
+    // If no results found with exact search, try to find partial matches
+    if (results.length === 0) {
+      // Get all files first, then filter (for small directories)
+      try {
+        const { data: allData } = await axios.get(`${apiConfig.driveApi}/root${encodedPath}/children`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: {
+            select: 'id,name,file,folder,parentReference',
+            top: 200, // Limit to prevent timeout
+          },
+        })
+        
+        // Filter results that contain the search term (case insensitive)
+        results = (allData.value || []).filter((item: any) => 
+          item.name.toLowerCase().includes(queryLower)
+        )
+      } catch (fallbackError) {
+        console.log('Fallback search failed:', fallbackError)
+      }
+    }
+    
+    res.status(200).json(results)
   } catch (error: any) {
     console.error('Search API error:', error?.response?.data || error.message)
     
