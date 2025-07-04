@@ -34,37 +34,65 @@ function sanitiseQuery(query: string): string {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Get access token from storage
-  const accessToken = await getAccessToken()
-
-  // Query parameter from request
-  const { q: searchQuery = '' } = req.query
-
   // Set edge function caching for faster load times, check docs:
   // https://vercel.com/docs/concepts/functions/edge-caching
   res.setHeader('Cache-Control', apiConfig.cacheControlHeader)
 
-  if (typeof searchQuery === 'string') {
+  // Query parameter from request
+  const { q: searchQuery = '' } = req.query
+
+  if (typeof searchQuery !== 'string') {
+    res.status(400).json({ error: 'Invalid search query' })
+    return
+  }
+
+  if (searchQuery.trim() === '') {
+    res.status(200).json([])
+    return
+  }
+
+  try {
+    // Get access token from storage
+    const accessToken = await getAccessToken()
+
+    // Return error 403 if access_token is empty
+    if (!accessToken) {
+      res.status(403).json({ 
+        error: 'No access token. Please go to /tokenrestore to re-authenticate.',
+        tokenExpired: true 
+      })
+      return
+    }
+
     // Construct Microsoft Graph Search API URL, and perform search only under the base directory
     const searchRootPath = encodePath('/')
     const encodedPath = searchRootPath === '' ? searchRootPath : searchRootPath + ':'
 
     const searchApi = `${apiConfig.driveApi}/root${encodedPath}/search(q='${sanitiseQuery(searchQuery)}')`
 
-    try {
-      const { data } = await axios.get(searchApi, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: {
-          select: 'id,name,file,folder,parentReference',
-          top: siteConfig.maxItems,
-        },
+    const { data } = await axios.get(searchApi, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        select: 'id,name,file,folder,parentReference',
+        top: siteConfig.maxItems,
+      },
+    })
+    
+    res.status(200).json(data.value || [])
+  } catch (error: any) {
+    console.error('Search API error:', error?.response?.data || error.message)
+    
+    // Handle specific error cases
+    if (error?.response?.status === 401) {
+      res.status(401).json({ 
+        error: 'Access token expired. Please go to /tokenrestore to re-authenticate.',
+        tokenExpired: true 
       })
-      res.status(200).json(data.value)
-    } catch (error: any) {
-      res.status(error?.response?.status ?? 500).json({ error: error?.response?.data ?? 'Internal server error.' })
+    } else {
+      res.status(error?.response?.status ?? 500).json({ 
+        error: error?.response?.data?.error?.message || error?.response?.data || 'Internal server error.',
+        tokenExpired: false 
+      })
     }
-  } else {
-    res.status(200).json([])
   }
-  return
 }

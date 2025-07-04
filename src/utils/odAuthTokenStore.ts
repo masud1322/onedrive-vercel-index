@@ -3,7 +3,25 @@ import siteConfig from '../../config/site.config'
 
 // Persistent key-value store is provided by Redis, hosted on Upstash
 // https://vercel.com/integrations/upstash
-const kv = new Redis(process.env.REDIS_URL || '')
+let kv: Redis | null = null
+
+// Initialize Redis connection with proper error handling
+try {
+  if (process.env.REDIS_URL) {
+    kv = new Redis(process.env.REDIS_URL, {
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+    })
+    
+    // Handle connection errors
+    kv.on('error', (error) => {
+      console.log('Redis connection error:', error.message)
+    })
+  }
+} catch (error) {
+  console.log('Failed to initialize Redis:', error)
+  kv = null
+}
 
 // MongoDB support as alternative to Redis
 let mongoClient: any = null
@@ -29,13 +47,13 @@ async function getMongoConnection(): Promise<any> {
   return mongoDb
 }
 
-// Check if we should use MongoDB (when MONGODB_URL is set and REDIS_URL is not set or Redis fails)
+// Check if we should use MongoDB (when MONGODB_URL is set or Redis fails)
 const shouldUseMongoDB = () => {
-  return (process.env.MONGODB_URL || process.env.MONGODB_URI) && !process.env.REDIS_URL
+  return (process.env.MONGODB_URL || process.env.MONGODB_URI) && (!process.env.REDIS_URL || !kv)
 }
 
 export async function getOdAuthTokens(): Promise<{ accessToken: unknown; refreshToken: unknown }> {
-  // Try MongoDB first if configured
+  // Try MongoDB first if configured or Redis is not available
   if (shouldUseMongoDB()) {
     try {
       const db = await getMongoConnection()
@@ -54,17 +72,29 @@ export async function getOdAuthTokens(): Promise<{ accessToken: unknown; refresh
         refreshToken: refreshTokenDoc?.value || null,
       }
     } catch (error) {
-      console.error('MongoDB error, falling back to Redis:', error)
+      console.error('MongoDB error:', error)
     }
   }
 
-  // Fallback to Redis
-  const accessToken = await kv.get(`${siteConfig.kvPrefix}access_token`)
-  const refreshToken = await kv.get(`${siteConfig.kvPrefix}refresh_token`)
+  // Try Redis if available
+  if (kv) {
+    try {
+      const accessToken = await kv.get(`${siteConfig.kvPrefix}access_token`)
+      const refreshToken = await kv.get(`${siteConfig.kvPrefix}refresh_token`)
 
+      return {
+        accessToken,
+        refreshToken,
+      }
+    } catch (error) {
+      console.error('Redis error:', error)
+    }
+  }
+
+  // Return empty tokens if both fail
   return {
-    accessToken,
-    refreshToken,
+    accessToken: null,
+    refreshToken: null,
   }
 }
 
@@ -77,7 +107,10 @@ export async function storeOdAuthTokens({
   accessTokenExpiry: number
   refreshToken: string
 }): Promise<void> {
-  // Try MongoDB first if configured
+  let mongoSuccess = false
+  let redisSuccess = false
+
+  // Try MongoDB first if configured or Redis is not available
   if (shouldUseMongoDB()) {
     try {
       const db = await getMongoConnection()
@@ -110,13 +143,26 @@ export async function storeOdAuthTokens({
 
       // Create TTL index for automatic cleanup of expired tokens
       await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
-      return
+      mongoSuccess = true
+      console.log('Tokens stored in MongoDB successfully')
     } catch (error) {
-      console.error('MongoDB error, falling back to Redis:', error)
+      console.error('MongoDB error:', error)
     }
   }
 
-  // Fallback to Redis
-  await kv.set(`${siteConfig.kvPrefix}access_token`, accessToken, 'EX', accessTokenExpiry)
-  await kv.set(`${siteConfig.kvPrefix}refresh_token`, refreshToken)
+  // Try Redis if available and MongoDB didn't succeed
+  if (kv && !mongoSuccess) {
+    try {
+      await kv.set(`${siteConfig.kvPrefix}access_token`, accessToken, 'EX', accessTokenExpiry)
+      await kv.set(`${siteConfig.kvPrefix}refresh_token`, refreshToken)
+      redisSuccess = true
+      console.log('Tokens stored in Redis successfully')
+    } catch (error) {
+      console.error('Redis error:', error)
+    }
+  }
+
+  if (!mongoSuccess && !redisSuccess) {
+    throw new Error('Failed to store tokens in both MongoDB and Redis')
+  }
 }

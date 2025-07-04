@@ -239,7 +239,23 @@ export default function SearchModal({
                 )}
                 {results.error && (
                   <div className="px-4 py-12 text-center text-sm font-medium">
-                    {t('Error: {{message}}', { message: results.error.message })}
+                    <div className="text-red-600 dark:text-red-400">
+                      {((results.error as any)?.response?.data?.tokenExpired) ? (
+                        <div className="space-y-2">
+                          <div>{t('Access token expired')}</div>
+                          <Link
+                            href="/tokenrestore" 
+                            className="inline-block rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+                          >
+                            {t('Restore Tokens')}
+                          </Link>
+                        </div>
+                      ) : (
+                        t('Error: {{message}}', { 
+                          message: (results.error as any)?.response?.data?.error || results.error.message 
+                        })
+                      )}
+                    </div>
                   </div>
                 )}
                 {results.result && (
