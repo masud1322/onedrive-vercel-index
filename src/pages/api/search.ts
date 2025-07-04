@@ -1,8 +1,8 @@
 import axios from 'axios'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { encodePath, getAccessToken } from '.'
-import { matchProtectedRoute, getStoredToken } from '../../utils/protectedRouteHandler'
+import { encodePath, getAccessToken, checkAuthRoute } from '.'
+import { matchProtectedRoute } from '../../utils/protectedRouteHandler'
 import apiConfig from '../../../config/api.config'
 import siteConfig from '../../../config/site.config'
 
@@ -19,20 +19,26 @@ interface DriveItem {
 /**
  * Check if a folder path is protected and if user has access
  * @param folderPath The path to check
+ * @param accessToken OneDrive access token for API calls
  * @param req The request object to check for authentication headers
- * @returns boolean indicating if the folder can be searched
+ * @returns Promise<boolean> indicating if the folder can be searched
  */
-function canAccessFolder(folderPath: string, req: NextApiRequest): boolean {
-  const fullPath = `${siteConfig.baseDirectory}${folderPath}`.replace(/\/+/g, '/')
-  const protectedRoute = matchProtectedRoute(fullPath)
+async function canAccessFolder(folderPath: string, accessToken: string, req: NextApiRequest): Promise<boolean> {
+  // Clean the folder path similar to main API
+  const cleanPath = folderPath.startsWith('/') ? folderPath.replace(/\/$/, '') : `/${folderPath}`.replace(/\/$/, '')
+  const fullPath = `${siteConfig.baseDirectory}${cleanPath}`.replace(/\/+/g, '/')
   
-  if (!protectedRoute) {
-    return true // Not protected, can access
+  try {
+    // Use the same authentication logic as main API
+    const odTokenHeader = req.headers['od-protected-token'] as string
+    const authResult = await checkAuthRoute(cleanPath, accessToken, odTokenHeader || '')
+    
+    // Only allow access if authentication passed (code 200) or route is not protected
+    return authResult.code === 200
+  } catch (error) {
+    console.log(`Authentication check failed for folder ${folderPath}:`, error)
+    return false // Deny access on any error
   }
-  
-  // Check if user has provided authentication for this protected route
-  const odTokenHeader = req.headers['od-protected-token'] as string
-  return Boolean(odTokenHeader) // For now, just check if token exists
 }
 
 /**
@@ -175,7 +181,7 @@ async function getAllFilesByFolderId(
   }
 
   // Skip protected folders if user doesn't have access
-  if (req && !canAccessFolder(folderPath, req)) {
+  if (req && !(await canAccessFolder(folderPath, accessToken, req))) {
     console.log(`Skipping protected folder: ${folderPath}`)
     return allFiles
   }
